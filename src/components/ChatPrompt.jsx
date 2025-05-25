@@ -4,6 +4,9 @@ import { FaPaperPlane, FaRobot, FaUser, FaClipboardList } from 'react-icons/fa'
 import PatientRegistration from './PatientRegistration'
 
 const ChatPrompt = () => {
+  // URL base de la API - usando el backend desplegado en Vercel
+  const API_BASE_URL = 'https://clara-back.vercel.app'
+  
   const [prompt, setPrompt] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [conversations, setConversations] = useState([])
@@ -28,7 +31,7 @@ const ChatPrompt = () => {
 
     const checkPatientRegistration = async (sessionId) => {
       try {
-        const response = await axios.get(`http://localhost:3002/api/chat/patient/${sessionId}`);
+        const response = await axios.get(`${API_BASE_URL}/api/chat/patient/${sessionId}`);
         if (response.data && response.data.isRegistered) {
           setCurrentPatient(response.data);
           setIsRegistered(true);
@@ -43,7 +46,7 @@ const ChatPrompt = () => {
 
     const loadConversationHistory = async (sessionId) => {
       try {
-        const response = await axios.get(`http://localhost:3002/api/chat/history?sessionId=${sessionId}`);
+        const response = await axios.get(`${API_BASE_URL}/api/chat/history?sessionId=${sessionId}`);
         const history = response.data.map(conv => [
           { role: 'user', content: conv.prompt },
           { role: 'assistant', content: conv.response }
@@ -68,7 +71,7 @@ const ChatPrompt = () => {
   // Función para registrar paciente
   const handlePatientRegistration = async (patientData) => {
     try {
-      const response = await axios.post('http://localhost:3002/api/chat/register', {
+      const response = await axios.post(`${API_BASE_URL}/api/chat/register`, {
         ...patientData,
         sessionId
       });
@@ -90,10 +93,10 @@ const ChatPrompt = () => {
   // Función para buscar paciente existente
   const handleFindPatient = async (patientId) => {
     try {
-      const response = await axios.get(`http://localhost:3002/api/chat/find/${patientId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/chat/find/${patientId}`);
       
       // Crear nueva sesión para paciente existente
-      const newResponse = await axios.post('http://localhost:3002/api/chat/register', {
+      const newResponse = await axios.post(`${API_BASE_URL}/api/chat/register`, {
         patientId: response.data.patientId,
         name: response.data.name,
         age: response.data.age,
@@ -141,7 +144,7 @@ const ChatPrompt = () => {
       setConversations(newConversations)
       setPrompt('')
       
-      const res = await axios.post('http://localhost:3002/api/chat', { 
+      const res = await axios.post(`${API_BASE_URL}/api/chat`, { 
         prompt, 
         sessionId 
       })
