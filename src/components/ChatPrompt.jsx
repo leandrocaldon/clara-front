@@ -110,10 +110,34 @@ const ChatPrompt = () => {
       setIsRegistered(true);
       setShowRegistration(false);
 
-      // Agregar mensaje de bienvenida
-      setConversations([
-        { role: 'assistant', content: newResponse.data.message }
-      ]);
+      // Obtener historial de consultas anteriores para mostrar resumen
+      try {
+        const historyResponse = await axios.get(`${API_BASE_URL}/api/chat/history?patientId=${patientId}&includeAllSessions=true`);
+        const previousConsultations = historyResponse.data.length;
+        
+        let welcomeMessage = newResponse.data.message;
+        
+        if (previousConsultations > 0) {
+          welcomeMessage += `\n\n📋 Veo que tienes ${Math.floor(previousConsultations/2)} consultas anteriores en tu historial médico. Puedo recordar nuestras conversaciones previas para darte un mejor seguimiento.`;
+          
+          // Mostrar las últimas consultas como contexto
+          const recentConsultations = historyResponse.data.slice(0, 4); // Últimas 2 consultas
+          if (recentConsultations.length > 0) {
+            welcomeMessage += `\n\n🔍 Última consulta: "${recentConsultations[0].prompt.substring(0, 100)}${recentConsultations[0].prompt.length > 100 ? '...' : ''}"`;
+          }
+        }
+
+        // Agregar mensaje de bienvenida con contexto
+        setConversations([
+          { role: 'assistant', content: welcomeMessage }
+        ]);
+      } catch (historyError) {
+        console.error('Error al cargar historial:', historyError);
+        // Si falla el historial, usar mensaje básico
+        setConversations([
+          { role: 'assistant', content: newResponse.data.message }
+        ]);
+      }
 
     } catch (error) {
       throw new Error('Paciente no encontrado');
@@ -189,6 +213,57 @@ const ChatPrompt = () => {
     setShowRegistration(true);
   };
 
+  // Nueva función para mostrar historial completo del paciente
+  const handleViewCompleteHistory = async () => {
+    if (!currentPatient?.patientId) return;
+    
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/chat/history?patientId=${currentPatient.patientId}&includeAllSessions=true`);
+      const allHistory = response.data.reverse(); // Mostrar en orden cronológico
+      
+      // Crear mensaje con resumen del historial
+      let historyMessage = `📋 **Historial Médico Completo**\n\n`;
+      historyMessage += `👤 Paciente: ${currentPatient.name}\n`;
+      historyMessage += `🆔 ID: ${currentPatient.patientId}\n`;
+      historyMessage += `📊 Total de consultas: ${Math.floor(allHistory.length/2)}\n\n`;
+      
+      if (allHistory.length > 0) {
+        historyMessage += `🔍 **Últimas consultas:**\n\n`;
+        
+        // Mostrar las últimas 6 consultas (3 intercambios)
+        const recentHistory = allHistory.slice(-6);
+        for (let i = 0; i < recentHistory.length; i += 2) {
+          const userMsg = recentHistory[i];
+          const assistantMsg = recentHistory[i + 1];
+          
+          if (userMsg && assistantMsg) {
+            const date = new Date(userMsg.createdAt).toLocaleDateString('es-ES');
+            historyMessage += `📅 ${date}\n`;
+            historyMessage += `❓ **Consulta:** ${userMsg.prompt.substring(0, 150)}${userMsg.prompt.length > 150 ? '...' : ''}\n`;
+            historyMessage += `💬 **Respuesta:** ${assistantMsg.response.substring(0, 150)}${assistantMsg.response.length > 150 ? '...' : ''}\n\n`;
+          }
+        }
+        
+        historyMessage += `\n💡 *Este es un resumen de tus consultas anteriores. Puedo recordar toda esta información para darte un mejor seguimiento médico.*`;
+      } else {
+        historyMessage += `No hay consultas anteriores registradas.`;
+      }
+      
+      // Agregar el historial como un mensaje del sistema
+      setConversations(prev => [
+        ...prev,
+        { role: 'system', content: historyMessage }
+      ]);
+      
+    } catch (error) {
+      console.error('Error al cargar historial completo:', error);
+      setConversations(prev => [
+        ...prev,
+        { role: 'system', content: 'Error al cargar el historial completo. Por favor intenta de nuevo.' }
+      ]);
+    }
+  };
+
   // Función para formatear el texto con saltos de línea
   const formatText = (text, isUser = false) => {
     return text.split('\n').map((paragraph, i) => (
@@ -255,13 +330,25 @@ const ChatPrompt = () => {
               </p>
             )}
           </div>
-          <button
-            onClick={handleNewSession}
-            className="text-xs bg-purple-500 hover:bg-purple-700 px-3 py-1 rounded-full transition-all"
-            title="Nueva consulta"
-          >
-            Nueva Consulta
-          </button>
+          <div className="flex gap-2">
+            {currentPatient && currentPatient.consultationCount > 1 && (
+              <button
+                onClick={handleViewCompleteHistory}
+                className="text-xs bg-indigo-500 hover:bg-indigo-700 px-3 py-1 rounded-full transition-all"
+                title="Ver historial completo"
+              >
+                <FaClipboardList className="inline mr-1" />
+                Historial
+              </button>
+            )}
+            <button
+              onClick={handleNewSession}
+              className="text-xs bg-purple-500 hover:bg-purple-700 px-3 py-1 rounded-full transition-all"
+              title="Nueva consulta"
+            >
+              Nueva Consulta
+            </button>
+          </div>
         </div>
         {sessionId && (
           <p className="text-xs text-purple-200 mt-1">
@@ -295,7 +382,9 @@ const ChatPrompt = () => {
                     message.role === 'user' 
                       ? 'bg-gradient-to-br from-purple-600 to-purple-700 text-white rounded-tr-none' 
                       : message.role === 'system'
-                        ? 'bg-red-100 text-red-700 border border-red-200'
+                        ? message.content.includes('Historial Médico Completo') 
+                          ? 'bg-gradient-to-br from-blue-50 to-indigo-50 text-gray-800 border border-blue-200 max-w-[95%]'
+                          : 'bg-red-100 text-red-700 border border-red-200'
                         : 'bg-white text-gray-800 border border-purple-100 rounded-tl-none shadow-md'
                   }`}
                 >
@@ -306,7 +395,14 @@ const ChatPrompt = () => {
                         <span className="text-white font-bold">{currentPatient?.name || 'Tú'}</span>
                       </>
                     ) : message.role === 'system' ? (
-                      'Sistema'
+                      message.content.includes('Historial Médico Completo') ? (
+                        <>
+                          <FaClipboardList className="mr-1 text-blue-600" />
+                          <span className="text-blue-800">Historial Médico</span>
+                        </>
+                      ) : (
+                        'Sistema'
+                      )
                     ) : (
                       <>
                         <FaRobot className="mr-1 text-purple-600" /> 
